@@ -31,15 +31,15 @@ Pipeline được thiết kế theo hướng “biến time-series → tabular f
 
 ```mermaid
 flowchart LR
-  A[train_log.csv / test_log.csv] --> M[Merge theo object_id]
-  B[split_01..20 lightcurves] --> C[De-extinction theo EBV (CCM89)]
-  C --> D[Feature engineering theo từng filter + global]
-  D --> M
-  M --> P[Physics + rest-frame features theo Z]
-  P --> X[Prep dữ liệu: xử lý missing, categorical, drop cột hằng]
-  X --> L[LightGBM (scale_pos_weight)]
-  L --> T[CV 5-fold + tối ưu threshold theo PR curve]
-  T --> S[submission.csv]
+  A["train_log.csv / test_log.csv"] --> M["Merge theo object_id"];
+  B["split_01..20 lightcurves"] --> C["De-extinction theo EBV (CCM89)"];
+  C --> D["Feature engineering theo từng filter + global"];
+  D --> M;
+  M --> P["Physics + rest-frame features theo Z"];
+  P --> X["Prep dữ liệu: xử lý missing, categorical, drop cột hằng"];
+  X --> L["LightGBM (scale_pos_weight)"];
+  L --> T["CV 5-fold + tối ưu threshold theo PR curve"];
+  T --> S["submission.csv"];
 ```
 
 ---
@@ -217,4 +217,3 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
 - **Ngôn ngữ / môi trường**: Python (notebook ghi nhận Python 3.11.x trên Kaggle).
 - **Thư viện chính**: `pandas`, `numpy`, `scikit-learn`, `lightgbm`.
 - **Chiến lược xử lý imbalanced**: `scale_pos_weight` + tối ưu threshold theo PR curve.
-
