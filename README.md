@@ -209,6 +209,8 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
    ```
 
 4. Run All cells.
+
+   
 7 Mạng Nơ-ron hồi quy (RNN)
 # 
 ## **Deep Learning Approach**
@@ -219,7 +221,7 @@ Trong nỗ lực cải thiện điểm số, chúng tôi đã thử nghiệm v�
 - **Lý do chọn GRU với Attention**: GRU là một loại **RNN** được thiết kế để giảm thiểu vấn đề **vanishing gradient** và có thể xử lý **dữ liệu chuỗi** dài mà không gặp phải vấn đề **trì trệ** như trong các mô hình RNN thông thường. Cơ chế attention giúp mô hình **chú ý vào các bước thời gian quan trọng**, giúp cải thiện khả năng học từ chuỗi dữ liệu.
 
 ### **Chẩn đoán hiệu suất**
-- **Mặc dù đã thực hiện tiền xử lý dữ liệu đúng cách** (ví dụ: **scaling theo đối tượng**, **mã hóa thời gian tương đối**), và áp dụng **kiến trúc vững chắc**, các mô hình học sâu vẫn **hoạt động kém**, chỉ đạt **F1-score tối đa khoảng 0.18**.
+- **Mặc dù đã thực hiện tiền xử lý dữ liệu đúng cách** (ví dụ: **scaling theo đối tượng**, **mã hóa thời gian tương đối**), và áp dụng **kiến trúc vững chắc**, các mô hình học sâu vẫn **hoạt động kém**, chỉ đạt **F1-score tối đa khoảng 0.11**.
 
 ### **Nguyên nhân chính của hiệu suất kém**:
 1. **Data Sparsity (Dữ liệu thưa thớt)**:
