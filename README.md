@@ -190,7 +190,7 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
 
 # 6. Hướng dẫn chạy lại
 ## 6.1 Chạy trên Kaggle
-1. Upload/Import notebook `mallorn_0.6649.ipynb`.
+1. Upload/Import notebook `final_mallorn_submission.ipynb`.
 2. Add dataset MALLORN vào notebook (để dữ liệu nằm trong `/kaggle/input/...`).
 3. Run All → tạo `submission.csv` trong output của notebook.
 
