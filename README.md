@@ -211,8 +211,7 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
 4. Run All cells.
 
    
-#7 Mạng Nơ-ron hồi quy (RNN) 
-## **Deep Learning Approach**
+## **7 Deep Learning Approach - RNN**
 Trong nỗ lực cải thiện điểm số, chúng tôi đã thử nghiệm với **mô hình học sâu** (Deep Learning) để kiểm tra liệu mô hình có thể học các mẫu thời gian **(temporal patterns)** trực tiếp từ các **chuỗi dữ liệu thô** (raw sequences) không. Phương pháp này giúp mô hình **học từ dữ liệu chuỗi thời gian** mà không cần **feature engineering** chi tiết như đã thực hiện trước đó.
 
 ### **Kiến trúc mô hình**
