@@ -1,93 +1,220 @@
-# MALLORN Astronomical Classification Challenge
+# MALLORN Astronomical Classification Challenge (bài làm `0.6649`)
 
-## *Điểm Public Leaderboard: 0.6649*
+## *Public Leaderboard Score: **0.6649***
 
-Repository này trình bày lời giải đạt 0.6649 cho bài toán **MALLORN Astronomical Classification Challenge**. Trọng tâm là pipeline LightGBM với feature engineering sâu trên lightcurve đa băng lọc, hiệu chỉnh suy giảm ánh sáng (EBV), bổ sung đặc trưng vật lý (rest-frame), và tối ưu ngưỡng theo đường cong Precision-Recall để tối đa F1.
+Repository này lưu lại toàn bộ hướng giải và notebook dùng để tạo file nộp cho cuộc thi **MALLORN Astronomical Classification Challenge** (Kaggle). Notebook chính: `mallorn_0.6649.ipynb`.
 
-# 1. Bài toán
-Mục tiêu là xây dựng mô hình phân loại **Tidal Disruption Events (TDEs)** từ dữ liệu lightcurve giả lập của LSST, dựa trên đo sáng theo thời gian của 6 bộ lọc (`u, g, r, i, z, y`) cùng với metadata (redshift, extinction, ...).
+---
 
-## Dữ liệu
-Dữ liệu gồm 2 phần chính:
-* **Log files (`train_log.csv`, `test_log.csv`)**: chứa `object_id`, `Z`, `Z_err`, `EBV`, `SpecType`, `target`, và thông tin `split`.
-* **Lightcurve files**: nằm trong các thư mục `split_01` ... `split_20`, mỗi file `[train/test]_full_lightcurves.csv` chứa chuỗi thời gian theo từng bộ lọc.
+# 1. Mô tả bài toán
+Mục tiêu của bài toán là xây dựng mô hình **phân loại nhị phân** để phát hiện các **Tidal Disruption Events (TDEs)** (sự kiện sao bị xé bởi hố đen siêu nặng) từ dữ liệu **lightcurve đa băng** mô phỏng theo chuẩn quan sát của LSST (Vera C. Rubin Observatory).
 
-## Thách thức
-* **Mất cân bằng lớp**: TDE cực hiếm so với các loại transient khác.
-* **Chuỗi thời gian thưa và không đều**: số điểm quan sát theo thời gian khác nhau cho mỗi object và mỗi filter.
-* **Chỉ số đánh giá**: **F1 Score**, nhấn mạnh cân bằng giữa Precision và Recall.
+## 1.1 Bộ dữ liệu
+Dữ liệu gồm 2 nhóm chính:
+
+- **Metadata / Log**: `train_log.csv`, `test_log.csv`
+  - Chứa `object_id` và các thuộc tính tĩnh của vật thể: `Z` (redshift), `Z_err` (sai số redshift — chủ yếu có ở test), `EBV` (hệ số suy giảm do bụi), `split` (tên thư mục split).
+  - Với train có thêm `SpecType` và `target` (nhãn nhị phân: 1 = TDE, 0 = không phải TDE).
+- **Lightcurve theo từng split**: `split_01` … `split_20`
+  - Mỗi split có `train_full_lightcurves.csv` và `test_full_lightcurves.csv`.
+  - Mỗi dòng là một quan sát theo thời gian: `Time (MJD)`, `Flux`, `Flux_err`, `Filter` (6 băng: `u, g, r, i, z, y`).
+
+## 1.2 Thử thách chính
+- **Mất cân bằng lớp rất mạnh**: trong train có `148` TDE trên `3043` đối tượng (tỷ lệ ~`4.86%`).
+- **Chuỗi thời gian thưa + không đều**: số điểm quan sát mỗi object khác nhau và khoảng cách thời gian không cố định.
+- **Metric chấm điểm**: **F1-score** (phù hợp bài toán imbalanced vì cân bằng precision/recall).
+
+---
 
 # System Design
-Pipeline theo hướng “feature engineering trước, mô hình tabular sau”, tập trung vào xử lý vật lý (de-extinction), đặc trưng thống kê theo filter, sau đó tổng hợp mức object và huấn luyện LightGBM với threshold tối ưu.
+Pipeline được thiết kế theo hướng “biến time-series → tabular features”, sau đó dùng mô hình tree boosting:
 
-### Tầng dữ liệu
-- **Metadata** (`train_log.csv`, `test_log.csv`): dùng để ghép `Z`, `EBV`, `Z_err`, `split`...
-- **Lightcurves**: đọc theo từng split, gom về dạng long-format cho feature extraction.
+```mermaid
+flowchart LR
+  A[train_log.csv / test_log.csv] --> M[Merge theo object_id]
+  B[split_01..20 lightcurves] --> C[De-extinction theo EBV (CCM89)]
+  C --> D[Feature engineering theo từng filter + global]
+  D --> M
+  M --> P[Physics + rest-frame features theo Z]
+  P --> X[Prep dữ liệu: xử lý missing, categorical, drop cột hằng]
+  X --> L[LightGBM (scale_pos_weight)]
+  L --> T[CV 5-fold + tối ưu threshold theo PR curve]
+  T --> S[submission.csv]
+```
 
-### Chiến lược Feature Engineering
-Trọng tâm là tạo đặc trưng “giàu thông tin” từ lightcurve thưa:
-- **Per-filter stats**: thống kê cơ bản (mean/std/median/min/max), quantile, skew/kurtosis, SNR, độ biến thiên, khoảng thời gian quan sát.
-- **Đặc trưng động học**: độ dốc rise/decay, vị trí peak, độ rộng đỉnh (width 50/75%), cadence, sign-change.
-- **Tích phân diện tích**: trapezoid area, cân bằng dương/âm, energy của flux/SNR.
-- **Detection features**: số điểm có `SNR >= 3` và flux dương, span của vùng phát hiện.
-
-### Tổng hợp toàn bộ filter
-Sau khi có đặc trưng theo từng filter, tiếp tục tạo:
-- **Global features** theo object (gộp tất cả filter).
-- **Categorical features**: `first_filter`, `peak_filter`.
-
-### Bổ sung vật lý thiên văn
-Từ `Z` và `EBV`:
-- **De-extinction** theo mô hình CCM89.
-- **Luminosity distance** và **distance modulus**.
-- **Rest-frame features**: hiệu chỉnh thời gian/slope theo `(1+z)`.
-- **Đặc trưng độ sáng tuyệt đối** từ peak flux.
-
-### Mô hình & vòng lặp huấn luyện
-Sử dụng **LightGBM** (tabular, xử lý missing tốt), kèm **scale_pos_weight** để cân bằng lớp, và **threshold optimization** theo PR-curve để tối đa F1.
+---
 
 # 2. Tổng quan hướng tiếp cận
-1. **Nạp dữ liệu & tự phát hiện DATA_DIR** từ môi trường Kaggle.
-2. **De-extinction** flux theo EBV (CCM89) trước khi trích xuất đặc trưng.
-3. **Feature engineering sâu** theo từng filter + tổng hợp theo object.
-4. **Bổ sung đặc trưng vật lý** (rest-frame, luminosity distance, magnitude).
-5. **Huấn luyện LightGBM** với 5-fold Stratified CV và tối ưu ngưỡng dựa trên PR-curve.
-6. **Tùy chọn**: phân tích tương quan Spearman để loại bớt đặc trưng dư thừa.
+Notebook `mallorn_0.6649.ipynb` triển khai theo các bước:
+
+1. **Đọc dữ liệu**: load `train_log.csv`, `test_log.csv` và toàn bộ lightcurve trong 20 split.
+2. **Hiệu chỉnh bụi (de-extinction)**: dùng `EBV` để hiệu chỉnh `Flux`/`Flux_err` theo định luật CCM89.
+3. **Feature engineering thủ công (hand-crafted)**:
+   - Trích xuất thống kê/cadence/shape theo từng filter (`u..y`), sau đó “pivot” sang dạng wide.
+   - Tạo thêm đặc trưng tương tác giữa các filter (màu/color, lệch thời gian peak, tỉ trọng peak…).
+   - Tạo đặc trưng global khi gộp cả 6 filter.
+4. **Bổ sung đặc trưng vật lý + rest-frame**:
+   - Tính xấp xỉ luminosity distance theo `Z`.
+   - Quy đổi/chuẩn hoá các đại lượng thời gian về rest-frame (chia cho `1+Z`).
+   - Đặc trưng liên quan đến độ sáng tại peak theo `DL^2`.
+5. **Huấn luyện LightGBM**:
+   - 5-fold **StratifiedKFold**.
+   - **Early stopping** và **tối ưu threshold** theo PR-curve để maximize F1.
+6. **Xuất `submission.csv`**.
+
+---
 
 # 3. Kỹ thuật Machine Learning
-## Mô hình chính
-**LightGBM Classifier** với cấu hình:
-* `n_estimators=6500`, `learning_rate=0.02`, `num_leaves=127`
-* `subsample=0.8`, `colsample_bytree=0.75`, `feature_fraction_bynode=0.8`
-* `reg_alpha=0.4`, `reg_lambda=6.0`, `min_child_samples=20`
-* `extra_trees=True`, `scale_pos_weight=neg/pos`
+## 3.1 Feature set sử dụng
+- **Từ lightcurve**: `812` đặc trưng/object (không tính `object_id`). Tổng số cột của bảng feature lightcurve là `813` (có `object_id`).
+- **Sau khi ghép metadata + physics/rest-frame + xử lý trong `prep_X`**: ma trận huấn luyện cuối có kích thước `X.shape = (3043, 1006)` (tức **1006 features** sau khi drop các cột hằng và xử lý missing).
+- **Cột dạng categorical**: `split`, `first_filter`, `peak_filter`.
 
-## Chuẩn bị dữ liệu
-* Điền median cho numeric.
-* Thêm nhãn `__MISSING__` cho categorical.
-* Loại cột hằng số.
+## 3.2 Mô hình cuối (LightGBM)
+Sử dụng `lightgbm.LGBMClassifier` với cấu hình chính (từ notebook):
 
-## Tối ưu ngưỡng (threshold)
-Mỗi fold tìm `threshold` tốt nhất theo **PR-curve** để tối đa F1, sau đó chọn ngưỡng toàn cục từ OOF.
+- `n_estimators=6500`, `learning_rate=0.02`
+- `num_leaves=127`, `max_depth=-1`
+- `subsample=0.8`, `subsample_freq=1`
+- `colsample_bytree=0.75`, `feature_fraction_bynode=0.8`
+- `min_child_samples=20`, `min_split_gain=0.01`
+- `reg_alpha=0.4`, `reg_lambda=6.0`
+- `extra_trees=True`, `force_col_wise=True`, `objective='binary'`, `n_jobs=-1`
+- **Imbalance handling**: `scale_pos_weight = neg/pos = 2895/148 ≈ 19.56`
 
-# 4. Phân tích tương quan & Feature Pruning (tùy chọn)
-Notebook có cell đánh giá tương quan Spearman để:
-* Xác định cặp đặc trưng tương quan cao.
-* Xếp hạng bằng importance của LightGBM.
-* Loại đặc trưng dư thừa nếu `corr > 0.98`.
+## 3.3 Validation + tối ưu threshold
+- **Validation**: 5-fold `StratifiedKFold(shuffle=True, random_state=42)`.
+- **Early stopping**: `early_stopping_rounds=300`, metric theo dõi `binary_logloss` trên validation fold.
+- **Tối ưu ngưỡng phân lớp**:
+  - Không dùng mặc định `0.5`.
+  - Dùng `precision_recall_curve` để quét các `threshold` và chọn ngưỡng cho **F1 lớn nhất**.
+  - Notebook in ra F1/thr theo từng fold và F1 OOF tổng.
 
-# 5. Pipeline chạy cuối
-1. Load `train_log.csv`, `test_log.csv` và lightcurves theo split.
-2. Tạo bảng hiệu chỉnh EBV và de-extinction flux.
-3. Trích xuất đặc trưng per-filter + global.
-4. Bổ sung đặc trưng vật lý theo redshift.
-5. Chuẩn hóa dữ liệu, xử lý missing, xử lý categorical.
-6. 5-fold CV LightGBM + tìm threshold tối ưu.
-7. Dự đoán `test_prob` và tạo `submission.csv`.
+Kết quả OOF trên notebook:
+- Fold 1: `F1=0.58333 | thr=0.2438`
+- Fold 2: `F1=0.63333 | thr=0.3837`
+- Fold 3: `F1=0.57576 | thr=0.2539`
+- Fold 4: `F1=0.64000 | thr=0.2427`
+- Fold 5: `F1=0.54545 | thr=0.3777`
+- **OOF F1 = `0.57862` | threshold = `0.3590`**
 
-# 6. Thông tin kỹ thuật
-* **Thư viện**: `pandas`, `numpy`, `scikit-learn`, `lightgbm`, `matplotlib`, `seaborn`.
-* **Validation**: 5-fold Stratified CV, metric F1.
-* **Xử lý mất cân bằng**: `scale_pos_weight`.
-* **Notebook chính**: `mallorn_0.6649.ipynb`.
+---
+
+# 4. Feature engineering (chi tiết theo notebook)
+## 4.1 Hiệu chỉnh extinction theo `EBV` (CCM89)
+Vì `Flux` trong dataset là **chưa hiệu chỉnh bụi**, notebook thực hiện:
+
+- Dùng `EBV` và `R_V=3.1` để tính `A_V = EBV * R_V`.
+- Dùng định luật **Cardelli, Clayton & Mathis 1989 (CCM89)** để tính `A_λ` theo bước sóng hiệu dụng của từng filter (`u..y`).
+- Tạo hệ số hiệu chỉnh:
+  - `corr = 10^(A_λ / 2.5)`
+  - `flux_corr = Flux * corr`
+  - `flux_err_corr = Flux_err * corr`
+
+## 4.2 Tiền xử lý theo quan sát
+Với từng bản ghi lightcurve sau khi hiệu chỉnh:
+- `flux_asinh = asinh(flux_corr)` (giúp ổn định khi flux âm/biến thiên mạnh)
+- `snr = |flux_corr| / max(flux_err_corr, 1e-6)`
+- Tạo thêm biến phụ: `abs_flux`, `flux_sq`, `snr_sq`, `rel_err = |flux_err|/|flux|`, trọng số `w = 1/flux_err^2`
+- Sắp xếp theo `object_id, filter, mjd` và tính `dt = diff(mjd)` để rút trích cadence/shape.
+
+## 4.3 Nhóm đặc trưng theo từng filter (`u, g, r, i, z, y`)
+Tính theo group `(object_id, filter)`:
+
+1. **Thống kê cơ bản** (ví dụ: `n_obs`, `t_min`, `t_max`, `flux_mean/std/min/max/median`, `err_mean/std/min/max`, `snr_mean/std/min/max`, …).
+2. **Phân vị (quantile) & độ trải**:
+   - `flux_q01/q10/q25/q75/q90/q99`, `flux_iqr = q75 - q25`, `amp = max - min`, các tỷ lệ như `amp_to_std`.
+3. **Cadence / khoảng trống quan sát**:
+   - `max_gap`, `med_gap`, `dt_mean/std`, `dt_p10/p90`.
+4. **Diện tích/shape theo quy tắc hình thang**:
+   - `area`, `area_abs`, `area_pos`, `area_neg` (từ tích phân xấp xỉ trên trục thời gian).
+5. **Center-of-mass theo thời gian**:
+   - `flux_com`: trọng tâm thời gian có trọng số `abs_flux`
+   - `snr_com`: trọng tâm thời gian có trọng số `snr`
+6. **Tín hiệu “detectable”** (lọc `snr>=3` và `flux>0`):
+   - `det_n`, `det_span`, `det_frac`, `det_span_ratio`, `det_snr_max`, `det_flux_max`, …
+7. **Đặc trưng quanh peak**:
+   - Tìm điểm `peak_flux` lớn nhất theo filter và ghi `peak_mjd`.
+   - Tính `first_flux/last_flux` (đầu/cuối chuỗi), `peak_rel` (vị trí peak trong [t_min, t_max]).
+   - Slope: `rise_slope`, `decay_slope`, `trend_slope`.
+   - Width tại các ngưỡng theo % peak (ví dụ `width_20`, `width_50`, `width_80`): độ rộng thời gian mà `flux >= frac * peak_flux`.
+8. **Ổn định dấu & độ “nhiễu”**:
+   - `sign_changes`, `sign_change_rate`.
+9. **Thống kê có trọng số sai số**:
+   - `flux_wmean`, `flux_wstd`, `flux_wcv`.
+
+## 4.4 Nhóm đặc trưng tương tác giữa các filter (màu & lệch thời gian)
+Sau khi pivot feature theo filter sang dạng wide, notebook tạo thêm:
+- **Color/asinh tại peak**: ví dụ `color_rz_asinh = asinh(r_peak_flux) - asinh(z_peak_flux)` (tương tự cho nhiều cặp filter).
+- **Color tại điểm đầu/cuối**: `color_*_first_asinh`, `color_*_last_asinh`.
+- **Chênh màu theo pha**: `color_*_delta_peak_first`, `color_*_delta_last_first`, `color_*_delta_peak_last`.
+- **Time-lag giữa các peak**: `dt_peak_*` (ví dụ `dt_peak_gi`).
+- **Tổng hợp peak theo filter**: `peak_flux_total`, `peak_flux_std`, `peak_flux_range`, `peak_flux_ratio_max_min`, `*_peak_frac`.
+- **Categorical**:
+  - `first_filter`: filter xuất hiện sớm nhất (theo thời gian)
+  - `peak_filter`: filter có `peak_flux` lớn nhất
+
+## 4.5 Nhóm đặc trưng global (gộp mọi filter)
+Gộp toàn bộ quan sát của object (không phân filter) và tính các đặc trưng `all_*` tương tự:
+- `all_n_obs`, `all_t_span`, `all_flux_mean/std/min/max/median`, `all_snr_mean/std/max`, …
+- `all_max_gap`, `all_med_gap`, `all_dt_std`, `all_area*`, …
+- Nhóm detectable global: `det_all_n`, `det_all_span`, `det_all_frac`, `det_all_span_ratio`, …
+
+## 4.6 Physics + rest-frame features (theo `Z`)
+Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn” cho feature:
+
+- `inv1pz = 1/(1+Z)` để quy đổi về rest-frame.
+- Xấp xỉ **luminosity distance** `DL_Mpc(z)` theo cosmology đơn giản (`H0=70`, `Ωm=0.3`) bằng tích phân số.
+- `distmod = 5*log10(DL_Mpc) + 25`, `logDL = log(1 + DL_Mpc)`.
+- Quy đổi thời gian về rest-frame: mọi cột “time-like” sẽ có biến `*_rest = * * inv1pz`.
+- Quy đổi slope về rest-frame: `slope_rest = slope / inv1pz`.
+- Pseudo-luminosity từ peak flux: `peak_L = peak_flux * DL^2` và `peak_L_log = log(1 + |L|)`.
+- Ước lượng độ sáng tuyệt đối (dạng “magnitude proxy”): `Mpeak = (23.9 - 2.5*log10(flux)) - distmod`.
+- `Z_snr = Z/Z_err` (nếu có `Z_err`).
+- Thêm các đặc trưng phân phối: `bowley_skew`, `tail_9010`, `peakiness`.
+- Đặc trưng màu thô: `blue_red_asinh` (tổng `u,g` trừ tổng `i,z,y` theo asinh).
+
+---
+
+# 5. Final Solution Pipeline (tóm tắt tạo `submission.csv`)
+1. Load `train_log.csv`, `test_log.csv` và lightcurve theo `split_01..20`.
+2. Tính bảng hệ số de-extinction `corr(object_id, filter)` từ `EBV`.
+3. Trích xuất feature lightcurve (812 features/object) + feature tương tác filter + feature global.
+4. Merge feature với log theo `object_id`.
+5. Thêm physics/rest-frame features theo `Z`.
+6. Chuẩn bị `X, y, X_test` (`prep_X`): fill median cho numeric, xử lý missing category, loại cột hằng.
+7. Train LightGBM 5-fold + early stopping.
+8. Tối ưu threshold trên OOF bằng PR-curve, áp threshold lên `test_prob`.
+9. Ghi `submission.csv` theo format `sample_submission.csv`.
+
+---
+
+# 6. Hướng dẫn chạy lại
+## 6.1 Chạy trên Kaggle
+1. Upload/Import notebook `mallorn_0.6649.ipynb`.
+2. Add dataset MALLORN vào notebook (để dữ liệu nằm trong `/kaggle/input/...`).
+3. Run All → tạo `submission.csv` trong output của notebook.
+
+## 6.2 Chạy local (Windows/Linux)
+1. Đảm bảo dữ liệu nằm tại `data/mallorn-astronomical-classification-challenge/` (giữ nguyên `split_01..20`).
+2. Trong notebook, chỉnh `DATA_DIR` (hoặc sửa `find_data_dir()`) để trỏ đến dataset local, ví dụ:
+
+   ```python
+   DATA_DIR = "data/mallorn-astronomical-classification-challenge"
+   ```
+
+3. Cài dependency tối thiểu:
+
+   ```bash
+   pip install numpy pandas scikit-learn lightgbm
+   ```
+
+4. Run All cells.
+
+---
+
+# 7. Technical Details
+- **Ngôn ngữ / môi trường**: Python (notebook ghi nhận Python 3.11.x trên Kaggle).
+- **Thư viện chính**: `pandas`, `numpy`, `scikit-learn`, `lightgbm`.
+- **Chiến lược xử lý imbalanced**: `scale_pos_weight` + tối ưu threshold theo PR curve.
 
