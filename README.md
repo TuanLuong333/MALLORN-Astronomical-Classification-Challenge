@@ -2,7 +2,7 @@
 
 ## *Public Leaderboard Score: **0.6649***
 
-Repository này lưu lại toàn bộ hướng giải và notebook dùng để tạo file nộp cho cuộc thi **MALLORN Astronomical Classification Challenge** (Kaggle). Notebook chính: `mallorn_0.6649.ipynb`.
+Repository này lưu lại toàn bộ hướng giải và notebook dùng để tạo file nộp cho cuộc thi **MALLORN Astronomical Classification Challenge** (Kaggle).
 
 ---
 
@@ -100,7 +100,7 @@ Kết quả OOF trên notebook:
 
 ---
 
-# 4. Feature engineering (chi tiết theo notebook)
+# 4. Feature engineering
 ## 4.1 Hiệu chỉnh extinction theo `EBV` (CCM89)
 Vì `Flux` trong dataset là **chưa hiệu chỉnh bụi**, notebook thực hiện:
 
@@ -211,9 +211,3 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
 
 4. Run All cells.
 
----
-
-# 7. Technical Details
-- **Ngôn ngữ / môi trường**: Python (notebook ghi nhận Python 3.11.x trên Kaggle).
-- **Thư viện chính**: `pandas`, `numpy`, `scikit-learn`, `lightgbm`.
-- **Chiến lược xử lý imbalanced**: `scale_pos_weight` + tối ưu threshold theo PR curve.
