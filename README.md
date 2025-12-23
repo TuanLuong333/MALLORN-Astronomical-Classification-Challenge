@@ -1,149 +1,93 @@
-# Nhóm 20 - INT3405E 4
-- Lương Anh Tuấn 23021706
-- Ma Đức Minh 23020626
-- Nguyễn Vũ Minh 23020629
+# MALLORN Astronomical Classification Challenge
 
+## *Điểm Public Leaderboard: 0.6649*
 
----
-# MALLORN-Astronomical-Classification-Challenge
+Repository này trình bày lời giải đạt 0.6649 cho bài toán **MALLORN Astronomical Classification Challenge**. Trọng tâm là pipeline LightGBM với feature engineering sâu trên lightcurve đa băng lọc, hiệu chỉnh suy giảm ánh sáng (EBV), bổ sung đặc trưng vật lý (rest-frame), và tối ưu ngưỡng theo đường cong Precision-Recall để tối đa F1.
 
+# 1. Bài toán
+Mục tiêu là xây dựng mô hình phân loại **Tidal Disruption Events (TDEs)** từ dữ liệu lightcurve giả lập của LSST, dựa trên đo sáng theo thời gian của 6 bộ lọc (`u, g, r, i, z, y`) cùng với metadata (redshift, extinction, ...).
 
-## I. Giới thiệu
-Cuộc thi MALLORN yêu cầu xây dựng mô hình khai thác dữ liệu quan sát vũ trụ trong 10 năm để phân loại sự kiện phá hủy thủy triều (TDEs) khi một ngôi sao bị xé toạc khi tiến quá gần hố đen siêu nặng
+## Dữ liệu
+Dữ liệu gồm 2 phần chính:
+* **Log files (`train_log.csv`, `test_log.csv`)**: chứa `object_id`, `Z`, `Z_err`, `EBV`, `SpecType`, `target`, và thông tin `split`.
+* **Lightcurve files**: nằm trong các thư mục `split_01` ... `split_20`, mỗi file `[train/test]_full_lightcurves.csv` chứa chuỗi thời gian theo từng bộ lọc.
 
+## Thách thức
+* **Mất cân bằng lớp**: TDE cực hiếm so với các loại transient khác.
+* **Chuỗi thời gian thưa và không đều**: số điểm quan sát theo thời gian khác nhau cho mỗi object và mỗi filter.
+* **Chỉ số đánh giá**: **F1 Score**, nhấn mạnh cân bằng giữa Precision và Recall.
 
-## II. Dataset
-- Cột Target: 1 - TDE và 0 - Non TDE
-- Format: Dữ liệu dạng bảng, nhiều dòng (tabular CSV).
-- Metadata: dữ liệu mô tả object gồm 2 file test_log.csv, train_log.csv
-- Lightcurve data: dữ liệu chính, object được quan sát theo thời gian gồm 20 folder split (01-20)
+# System Design
+Pipeline theo hướng “feature engineering trước, mô hình tabular sau”, tập trung vào xử lý vật lý (de-extinction), đặc trưng thống kê theo filter, sau đó tổng hợp mức object và huấn luyện LightGBM với threshold tối ưu.
 
+### Tầng dữ liệu
+- **Metadata** (`train_log.csv`, `test_log.csv`): dùng để ghép `Z`, `EBV`, `Z_err`, `split`...
+- **Lightcurves**: đọc theo từng split, gom về dạng long-format cho feature extraction.
 
----
-# Mô hình sử dụng: Light Gradient Boosting Machine (LightGBM)
+### Chiến lược Feature Engineering
+Trọng tâm là tạo đặc trưng “giàu thông tin” từ lightcurve thưa:
+- **Per-filter stats**: thống kê cơ bản (mean/std/median/min/max), quantile, skew/kurtosis, SNR, độ biến thiên, khoảng thời gian quan sát.
+- **Đặc trưng động học**: độ dốc rise/decay, vị trí peak, độ rộng đỉnh (width 50/75%), cadence, sign-change.
+- **Tích phân diện tích**: trapezoid area, cân bằng dương/âm, energy của flux/SNR.
+- **Detection features**: số điểm có `SNR >= 3` và flux dương, span của vùng phát hiện.
 
+### Tổng hợp toàn bộ filter
+Sau khi có đặc trưng theo từng filter, tiếp tục tạo:
+- **Global features** theo object (gộp tất cả filter).
+- **Categorical features**: `first_filter`, `peak_filter`.
 
-## I. Phát hiện về Dataset
+### Bổ sung vật lý thiên văn
+Từ `Z` và `EBV`:
+- **De-extinction** theo mô hình CCM89.
+- **Luminosity distance** và **distance modulus**.
+- **Rest-frame features**: hiệu chỉnh thời gian/slope theo `(1+z)`.
+- **Đặc trưng độ sáng tuyệt đối** từ peak flux.
 
-### 1) Đặc điểm dữ liệu
-- Bài toán binary classification với mất cân bằng lớp nghiêm trọng với lớp TDE rất hiếm.
-- Dữ liệu đầu vào gồm lightcurve đa phổ và metadata ở mức object.
-- 
-### 2) Đặc điểm chuỗi thời gian
-- Lightcurve có cadence không đều, xuất hiện nhiều khoảng trống quan sát.
-- Không thể giả định chuỗi thời gian đều hoặc liên tục.
-- 
-### 3) Đặc điểm tín hiệu quang học
-- Flux có thể âm, phân bố lệch và có nhiễu mạnh.
-- Mức độ nhiễu và biên độ tín hiệu khác nhau giữa các band.
-- 
-### 4) Yếu tố vật lý và quan sát
-- EBV biến thiên đáng kể 
-- Redshift trong tập test có sai số (Z_err)
+### Mô hình & vòng lặp huấn luyện
+Sử dụng **LightGBM** (tabular, xử lý missing tốt), kèm **scale_pos_weight** để cân bằng lớp, và **threshold optimization** theo PR-curve để tối đa F1.
 
+# 2. Tổng quan hướng tiếp cận
+1. **Nạp dữ liệu & tự phát hiện DATA_DIR** từ môi trường Kaggle.
+2. **De-extinction** flux theo EBV (CCM89) trước khi trích xuất đặc trưng.
+3. **Feature engineering sâu** theo từng filter + tổng hợp theo object.
+4. **Bổ sung đặc trưng vật lý** (rest-frame, luminosity distance, magnitude).
+5. **Huấn luyện LightGBM** với 5-fold Stratified CV và tối ưu ngưỡng dựa trên PR-curve.
+6. **Tùy chọn**: phân tích tương quan Spearman để loại bớt đặc trưng dư thừa.
 
-## II. LightGBM
+# 3. Kỹ thuật Machine Learning
+## Mô hình chính
+**LightGBM Classifier** với cấu hình:
+* `n_estimators=6500`, `learning_rate=0.02`, `num_leaves=127`
+* `subsample=0.8`, `colsample_bytree=0.75`, `feature_fraction_bynode=0.8`
+* `reg_alpha=0.4`, `reg_lambda=6.0`, `min_child_samples=20`
+* `extra_trees=True`, `scale_pos_weight=neg/pos`
 
-### 1) LightGBM là gì?
-- Phiên bản nâng cấp của thuật toán Gradient Boosting nguyên bản
-- Được phát triển với mục đích để tạo ra các mô hình học máy dựa trên cấu trúc cây quyết định (Decision Tree)
-- Ứng dụng hai phương pháp tiếp cận độc đáo: Gradient-based One-Side Sampling (GOSS) và Exclusive Feature Bundling (EFB) nhằm tăng cường tốc độ huấn luyện và làm giảm bớt sự phức tạp trong các phép tính toán cần thiết
-- 
-### 2) Lí do lựa chọn
-- Phù hợp dữ liệu dạng bảng
-- Chịu được mất cân bằng giữa các lớp trong bài toán classification 
-- Robust với nhiễu và outliers
-- Không yêu cầu chuỗi thời gian đều
-- Khai thác tốt feature đa phổ
+## Chuẩn bị dữ liệu
+* Điền median cho numeric.
+* Thêm nhãn `__MISSING__` cho categorical.
+* Loại cột hằng số.
 
+## Tối ưu ngưỡng (threshold)
+Mỗi fold tìm `threshold` tốt nhất theo **PR-curve** để tối đa F1, sau đó chọn ngưỡng toàn cục từ OOF.
 
-## III. Phương pháp
+# 4. Phân tích tương quan & Feature Pruning (tùy chọn)
+Notebook có cell đánh giá tương quan Spearman để:
+* Xác định cặp đặc trưng tương quan cao.
+* Xếp hạng bằng importance của LightGBM.
+* Loại đặc trưng dư thừa nếu `corr > 0.98`.
 
-### 1) De-extinct fluxes
-Tại sao cần khử bụi?
-- Flux bị ảnh hưởng bởi bụi trong thiên hà (EBV) khiến cho độ sáng quan sát bị “mờ” khác nhau giữa các object và giữa các filter
-- Nếu không hiệu chỉnh thì mô hình có khả năng học sai hoặc kém tổng quát <br>
-=> Cần <ins>chuẩn hoá flux</ins> theo extinction và theo filter để mô hình học đúng hình dạng lightcurve thay vì học bụi trong thiên hà:
-  - Tính extinction A(λ) tại bước sóng λ sử dụng mô hình CCM89
-  - Xây dựng bảng hệ số hiệu chỉnh extinction cho tất cả object và filter
-- Tính extinction A(λ) tại bước sóng λ sử dụng mô hình CCM89
-  - CCM89 là một công thức thực nghiệm mô tả cách ánh sáng từ một nguồn bị suy giảm/hấp thụ theo bước sóng khi đi qua bụi trong Milky Way: A(λ) / A_V = a + b / R_V
-    - A_V: extinction tại bước sóng nhìn thấy (A_V = R_V * EBV)
-    - a, b: các hàm thực nghiệm mô tả hình dạng đường cong extinction. 
-    - R_V: Tỷ số extinction tiêu chuẩn
-- Xây dựng bảng hệ số hiệu chỉnh extinction cho tất cả object và filter
-    - Dựa vào extinction A(λ) để tính hệ số hiệu chỉnh: corr = 10 ** (A(λ) / 2.5)
+# 5. Pipeline chạy cuối
+1. Load `train_log.csv`, `test_log.csv` và lightcurves theo split.
+2. Tạo bảng hiệu chỉnh EBV và de-extinction flux.
+3. Trích xuất đặc trưng per-filter + global.
+4. Bổ sung đặc trưng vật lý theo redshift.
+5. Chuẩn hóa dữ liệu, xử lý missing, xử lý categorical.
+6. 5-fold CV LightGBM + tìm threshold tối ưu.
+7. Dự đoán `test_prob` và tạo `submission.csv`.
 
-### 2) Feature engineering
-- Lightcurves là chuỗi thời gian không đều với các đối tượng trong dữ liệu có thời gian quan sát không đồng đều và có nhiều gaps <br>
-=> Phải <ins>chuyển đổi chuỗi thời gian thành các đặc trưng dạng bảng</ins> để phù hợp với mô hình LightGBM:
-  - Trích xuất các nhóm đặc trưng cho từng filter và toàn bộ object:
-    - Đặc trưng thống kê: mean, std, min, max, median
-    - Đặc trưng tần số quan sát: dt_mean, dt_gap, max_gap
-    - Đặc trưng hình dạng: area, peak_flux, peak_time
-    - Tính toán SNR: snr_mean
-    - Đặc trưng cross-filter: color, timing differences
-    - Đặc trưng liên quan đến sự thay đổi và độ nhạy của flux
+# 6. Thông tin kỹ thuật
+* **Thư viện**: `pandas`, `numpy`, `scikit-learn`, `lightgbm`, `matplotlib`, `seaborn`.
+* **Validation**: 5-fold Stratified CV, metric F1.
+* **Xử lý mất cân bằng**: `scale_pos_weight`.
+* **Notebook chính**: `mallorn_0.6649.ipynb`.
 
-### 3) Physics-informed features
-- Khoảng cách và độ sáng của đối tượng có ảnh hưởng lớn đến cách chúng ta quan sát lightcurve
-- Các redshift và extinction làm thay đổi độ sáng quan sát, và chỉ sử dụng flux thô có thể dẫn đến sự nhầm lẫn trong việc phân biệt TDE với non-TDE
-- Bằng cách kết hợp các đặc trưng vật lý như redshift (Z) và extinction (EBV), mô hình có thể hiểu rõ hơn về độ sáng tuyệt đối và khoảng cách của các đối tượng, từ đó phân loại chính xác hơn <br>
-=> Cần <ins>tạo ra các đặc trưng vật lý thiên văn</ins>
-- Đặc trưng vật lý thiên văn:
-  - Các đặc trưng từ Redshitf(Z):
-    - inv1pz (đảo ngược redshift, tính luminosity distance DL​)
-    - log1pZ (ổn định Z khi quá nhỏ hoặc lớn)
-    - Z²
-  - Độ sáng tuyệt đối
-  - Các đặc trưng liên quan đến Z_err: Z_snr
-  - Các đặc trưng tương tác giữa EBV và Z: EBV*Z, EBV*log1pZ
-  - Các đặc trưng khác như EBV², blue_red_asinh, distmod, DL, logDL
-
-### 4) Training & validation strategy
-- Dữ liệu TDE cực kỳ hiếm và mất cân bằng nặng, nếu chia dữ liệu huấn luyện và kiểm tra 1 lần thì dễ bị overfit vào non-TDE, thiếu khả năng phân biệt TDE
-  - Chuẩn bị cho model training:
-    - Loại bỏ các cột không dùng cho training
-    - Xử lý missing values: thay NaN bằng median
-    - Xử lý categorical columns: thêm category “MISSING”
-    - Loại bỏ constant columns
-    - Tính scale_pos_weight cho imbalanced data
-- <ins>Cross-validation</ins>:
-  - Giúp mô hình đánh giá ổn định hơn
-  - Giảm thiếu sự biến thiên trong các lần chia dữ liệu
-- <ins>Stratified K-Fold</ins>:
-  - Duy trì tỷ lệ TDE/non-TDE trong các fold giúp mô hình tránh bias bởi sự phân bố không đều 
-  - Mỗi fold sử dụng 1 phần tập dữ liệu làm validation set và phần còn lại là training set
-- <ins>Early stopping (rounds=300)</ins>:
-  - Giúp ngừng huấn luyện không cải thiện trên tập validation
-  - Giảm overfitting và tiết kiệm thời gian huấn luyện 
-- <ins>scale_pos_weight</ins>:
-  - Được tính toán bằng tỷ lệ giữa lớp 0 với lớp 1
-  - Giúp mô hình nhạy cảm hơn với lớp hiếm TDE, giảm thiểu bias trong việc phân loại
- 
-### 5) Hyperparameter tuning
-- LightGBM nhạy cảm với các tham số như num_leaves, learning_rate, đặc biệt với số lượng features lớn và dữ liệu nhiều noise 
-- Không gian tham số cho tuning bằng Randomized Grid Search:
-  - num_leaves: [63, 95, 127, 191] - Số lá
-  - min_child_samples: [10, 20, 40, 80] - Số sample tối thiểu mỗi lá
-  - subsample: [0.7, 0.8, 0.9] - Tỷ lệ sample data
-  - colsample_bytree: [0.6, 0.75, 0.9] - Tỷ lệ features mỗi cây
-  - feature_fraction_bynode: [0.6, 0.75, 0.85] - Tỷ lệ features mỗi node
-  - reg_alpha: [0.0, 0.2, 0.6, 1.0] - L1 regularization
-  - reg_lambda: [2.0, 6.0, 10.0] - L2 regularization
-  - min_split_gain: [0.0, 0.01, 0.05] - Gain tối thiểu để split
-  - max_depth: [-1, 8, 12] - Độ sâu tối đa
-
-### 6) Threshold optimization
-- Vì sao cần Threshold optimization?
-  - F1-score là metric chính trong cuộc thi và phụ thuộc vào threshold phân loại (ngưỡng xác định TDE hoặc non-TDE).
-  - Imbalance dữ liệu (TDE cực hiếm) khiến threshold 0.5 thường không tối ưu. Nếu dùng ngưỡng này, mô hình sẽ dễ bị bias về lớp phổ biến (non-TDE).
-  - Tối ưu ngưỡng phân loại giúp cân bằng precision và recall, từ đó tối đa hóa F1-score, làm mô hình phân biệt TDE chính xác hơn.
-- Triển khai:
-  - Tính Precision-Recall curve cho từ OOF probabilities
-  - Tính F1-score tại các threshold khác nhau và chọn ra ngưỡng cho F1 cao nhất
-     - F1 = 2 * (Precision * Recall) / (Precision + Recall)
-
-
-## IV. Kết quả
-![](result.jpg)
