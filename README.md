@@ -209,4 +209,27 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
    ```
 
 4. Run All cells.
+7 Mạng Nơ-ron hồi quy (RNN)
+# 
+## **Deep Learning Approach**
+Trong nỗ lực cải thiện điểm số, chúng tôi đã thử nghiệm với **mô hình học sâu** (Deep Learning) để kiểm tra liệu mô hình có thể học các mẫu thời gian **(temporal patterns)** trực tiếp từ các **chuỗi dữ liệu thô** (raw sequences) không. Phương pháp này giúp mô hình **học từ dữ liệu chuỗi thời gian** mà không cần **feature engineering** chi tiết như đã thực hiện trước đó.
 
+### **Kiến trúc mô hình**
+- **Single-Channel GRU with Attention**: Mô hình này xử lý một **chuỗi các quan sát** đã được làm phẳng (flattened sequence) của mỗi đối tượng. Chúng tôi sử dụng **GRU (Gated Recurrent Unit)** hai chiều (bidirectional) để học các mẫu thời gian, và **attention mechanism** để **tập trung vào các thời điểm quan trọng** trước khi phân loại.
+- **Lý do chọn GRU với Attention**: GRU là một loại **RNN** được thiết kế để giảm thiểu vấn đề **vanishing gradient** và có thể xử lý **dữ liệu chuỗi** dài mà không gặp phải vấn đề **trì trệ** như trong các mô hình RNN thông thường. Cơ chế attention giúp mô hình **chú ý vào các bước thời gian quan trọng**, giúp cải thiện khả năng học từ chuỗi dữ liệu.
+
+### **Chẩn đoán hiệu suất**
+- **Mặc dù đã thực hiện tiền xử lý dữ liệu đúng cách** (ví dụ: **scaling theo đối tượng**, **mã hóa thời gian tương đối**), và áp dụng **kiến trúc vững chắc**, các mô hình học sâu vẫn **hoạt động kém**, chỉ đạt **F1-score tối đa khoảng 0.18**.
+
+### **Nguyên nhân chính của hiệu suất kém**:
+1. **Data Sparsity (Dữ liệu thưa thớt)**:
+   - Các mô hình **RNN truyền thống** như **GRU** được thiết kế để làm việc với các chuỗi dữ liệu có sự **tần suất quan sát đều đặn**. Tuy nhiên, **dữ liệu lightcurves thiên văn** có sự **không đều** và **các khoảng trống quan sát lớn**, khiến mô hình **khó học được các mẫu hữu ích** từ dữ liệu thưa thớt này.
+   - RNN không hiệu quả với **dữ liệu không đồng đều** như dữ liệu lightcurves, nơi khoảng cách giữa các quan sát có thể rất lớn và không có **sự liên kết rõ ràng** giữa các bước thời gian.
+
+2. **Low Data Volume (Số lượng dữ liệu ít)**:
+   - **Chỉ có khoảng 150 ví dụ TDE tích cực** trong bộ huấn luyện, khiến mô hình học sâu thiếu dữ liệu để **học các mẫu phức tạp** và **phi tuyến tính** từ lightcurves của TDE. Mô hình không thể học được các mẫu này vì **dữ liệu quá ít** để hỗ trợ học máy sâu.
+   - Sự thiếu hụt dữ liệu **dẫn đến overfitting** và mô hình không thể **tổng quát tốt** cho các trường hợp chưa thấy.
+
+### **Kết luận từ việc thử nghiệm với mô hình học sâu**
+- Mặc dù **mô hình học sâu (RNN)** là một hướng tiếp cận thú vị, nhưng kết quả cho thấy **tính trừu tượng của đặc trưng** (feature abstraction) thông qua **feature engineering** lại là **chiến lược hiệu quả hơn** trong bài toán này.
+- Việc **trích xuất đặc trưng thủ công** từ lightcurves giúp mô hình học được các đặc trưng quan trọng và không bị phụ thuộc vào **dữ liệu thưa thớt**. Đây là lý do chúng tôi quyết định quay lại với phương pháp **tree-based models** (như LightGBM), vốn có thể xử lý **dữ liệu không đồng đều** và **cải thiện hiệu suất mô hình**.
