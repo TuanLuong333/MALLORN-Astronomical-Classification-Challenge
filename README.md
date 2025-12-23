@@ -45,7 +45,6 @@ flowchart LR
 ---
 
 # 2. Tổng quan hướng tiếp cận
-Notebook `mallorn_0.6649.ipynb` triển khai theo các bước:
 
 1. **Đọc dữ liệu**: load `train_log.csv`, `test_log.csv` và toàn bộ lightcurve trong 20 split.
 2. **Hiệu chỉnh bụi (de-extinction)**: dùng `EBV` để hiệu chỉnh `Flux`/`Flux_err` theo định luật CCM89.
@@ -176,7 +175,7 @@ Notebook thêm lớp đặc trưng vật lý để tăng “tính thiên văn”
 
 ---
 
-# 5. Final Solution Pipeline (tóm tắt tạo `submission.csv`)
+# 5. Final Solution Pipeline
 1. Load `train_log.csv`, `test_log.csv` và lightcurve theo `split_01..20`.
 2. Tính bảng hệ số de-extinction `corr(object_id, filter)` từ `EBV`.
 3. Trích xuất feature lightcurve (812 features/object) + feature tương tác filter + feature global.
