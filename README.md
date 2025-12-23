@@ -233,3 +233,4 @@ Trong nỗ lực cải thiện điểm số, chúng tôi đã thử nghiệm v�
 ### **Kết luận từ việc thử nghiệm với mô hình học sâu**
 - Mặc dù **mô hình học sâu (RNN)** là một hướng tiếp cận thú vị, nhưng kết quả cho thấy **tính trừu tượng của đặc trưng** (feature abstraction) thông qua **feature engineering** lại là **chiến lược hiệu quả hơn** trong bài toán này.
 - Việc **trích xuất đặc trưng thủ công** từ lightcurves giúp mô hình học được các đặc trưng quan trọng và không bị phụ thuộc vào **dữ liệu thưa thớt**. Đây là lý do chúng tôi quyết định quay lại với phương pháp **tree-based models** (như LightGBM), vốn có thể xử lý **dữ liệu không đồng đều** và **cải thiện hiệu suất mô hình**.
+  SOURCE Tham khảo Deep Learning Approach: https://github.com/BhargavKumarNath/MALLORN-Astronomical-Classification-Challenge.git
